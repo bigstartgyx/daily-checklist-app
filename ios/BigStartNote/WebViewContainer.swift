@@ -35,6 +35,8 @@ struct ChecklistScreen: View {
                     HStack(spacing: 8) {
                         TextField("添加新任务", text: $viewModel.taskInput)
                             .textFieldStyle(.plain)
+                            .foregroundStyle(BigStartPalette.textPrimary)
+                            .tint(BigStartPalette.accent)
 
                         Button {
                             showingDatePicker = true
@@ -81,6 +83,7 @@ struct ChecklistScreen: View {
             .padding(.top, 20)
             .padding(.bottom, 132)
         }
+        .scrollDisabled(viewModel.isSwipeDragging)
         .sheet(isPresented: $showingDatePicker) {
             NavigationStack {
                 DatePicker(
@@ -123,10 +126,18 @@ struct CalendarScreen: View {
                 HStack {
                     Text("日历")
                         .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(BigStartPalette.textPrimary)
                     Spacer()
                 }
 
-                BigStartCard {
+                BigStartCard(
+                    background: LinearGradient(
+                        colors: [Color(red: 0.97, green: 0.99, blue: 1.0), Color.white],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    borderColor: BigStartPalette.accent.opacity(0.12)
+                ) {
                     VStack(spacing: 18) {
                         HStack {
                             CircleIconButton(systemImage: "chevron.left") {
@@ -135,6 +146,7 @@ struct CalendarScreen: View {
                             Spacer()
                             Text(DateKey.monthTitle(for: visibleMonth))
                                 .font(.headline.weight(.semibold))
+                                .foregroundStyle(BigStartPalette.textPrimary)
                             Spacer()
                             CircleIconButton(systemImage: "chevron.right") {
                                 visibleMonth = shiftMonth(by: 1)
@@ -153,41 +165,62 @@ struct CalendarScreen: View {
                     }
                 }
 
-                BigStartCard(background: LinearGradient(colors: [Color.white, Color(red: 0.96, green: 0.98, blue: 1.0)], startPoint: .top, endPoint: .bottom)) {
-                    let key = viewModel.dateKey(for: viewModel.selectedDate)
-                    let progress = viewModel.progress(for: key)
-                    let tasks = viewModel.tasks(forKey: key)
+                let key = viewModel.dateKey(for: viewModel.selectedDate)
+                let progress = viewModel.progress(for: key)
+                let sections = viewModel.sections(for: key)
+
+                BigStartCard(
+                    background: LinearGradient(
+                        colors: [Color(red: 0.92, green: 0.96, blue: 1.0), Color(red: 0.98, green: 0.99, blue: 1.0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    borderColor: BigStartPalette.accent.opacity(0.16)
+                ) {
                     VStack(alignment: .leading, spacing: 16) {
                         HStack {
                             Text(DateKey.longTitle(for: viewModel.selectedDate))
                                 .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(BigStartPalette.textPrimary)
                             Spacer()
                             CompactProgressPill(progress: progress)
                         }
 
-                        ForEach(tasks) { task in
-                            CalendarTaskRowView(task: task, dateKey: key)
-                            if task.id != tasks.last?.id {
-                                Divider().opacity(0.08)
-                            }
+                        HStack(spacing: 10) {
+                            CalendarSummaryStat(label: "全部", value: progress.total, tint: BigStartPalette.accent.opacity(0.12))
+                            CalendarSummaryStat(label: "未完成", value: sections.active.count, tint: BigStartPalette.accent.opacity(0.1))
+                            CalendarSummaryStat(label: "已完成", value: sections.completed.count, tint: Color.green.opacity(0.12))
                         }
 
-                        if tasks.isEmpty {
-                            Text("当天暂无任务")
-                                .foregroundStyle(.secondary)
+                        if progress.total == 0 {
+                            Text("下面保留与清单一致的三区结构，方便直接在日历里管理任务。")
+                                .font(.subheadline)
+                                .foregroundStyle(BigStartPalette.textSecondary)
                         }
-
-                        Button("查看详情") {
-                            viewModel.setSelectedTab(.list)
-                        }
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(BigStartPalette.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     }
                 }
+
+                TaskSectionView(
+                    title: "置顶",
+                    items: sections.pinned,
+                    dateKey: key,
+                    style: .pinned,
+                    emptyText: "当天暂无置顶任务"
+                )
+                TaskSectionView(
+                    title: "未完成",
+                    items: sections.active,
+                    dateKey: key,
+                    style: .active,
+                    emptyText: "当天暂无未完成任务"
+                )
+                TaskSectionView(
+                    title: "已完成",
+                    items: sections.completed,
+                    dateKey: key,
+                    style: .completed,
+                    emptyText: "当天暂无已完成任务"
+                )
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
@@ -196,6 +229,7 @@ struct CalendarScreen: View {
                 visibleMonth = viewModel.selectedDate
             }
         }
+        .scrollDisabled(viewModel.isSwipeDragging)
     }
 
     private func shiftMonth(by offset: Int) -> Date {
@@ -212,9 +246,10 @@ struct MemoScreen: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("备忘录")
                         .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(BigStartPalette.textPrimary)
                     Text("\(viewModel.memos.count) 条记录")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BigStartPalette.textSecondary)
                 }
 
                 Button {
@@ -251,6 +286,7 @@ struct MemoScreen: View {
             .padding(.top, 20)
             .padding(.bottom, 132)
         }
+        .scrollDisabled(viewModel.isSwipeDragging)
     }
 }
 
@@ -278,12 +314,13 @@ struct EmptyStateView: View {
         VStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.system(size: 36))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BigStartPalette.textSecondary)
             Text(title)
                 .font(.headline)
+                .foregroundStyle(BigStartPalette.textPrimary)
             Text(description)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BigStartPalette.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -309,7 +346,7 @@ struct ProgressSummaryView: View {
 
             Text("\(progress.done) / \(progress.total) 已完成")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BigStartPalette.textSecondary)
         }
     }
 }
@@ -345,34 +382,69 @@ struct TaskSectionView: View {
     let items: [TaskItem]
     let dateKey: String
     let style: BigStartSectionStyle
+    var emptyText: String? = nil
 
     var body: some View {
-        if !items.isEmpty {
+        if !items.isEmpty || emptyText != nil {
             BigStartCard(background: style.background, borderColor: style.borderColor) {
                 VStack(spacing: 8) {
                     HStack {
                         Text(title)
                             .font(.headline.weight(.bold))
+                            .foregroundStyle(BigStartPalette.textPrimary)
                         Spacer()
                         Text("\(items.count)")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BigStartPalette.textSecondary)
                     }
                     .padding(.horizontal, 6)
                     .padding(.bottom, 4)
 
-                    ForEach(items) { task in
-                        TaskRowView(task: task, dateKey: dateKey, highlighted: viewModel.highlightedTaskID == task.id)
-                            .task {
-                                if viewModel.highlightedTaskID == task.id {
-                                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                                    viewModel.clearHighlightIfNeeded(taskID: task.id)
+                    if items.isEmpty {
+                        Text(emptyText ?? "暂无任务")
+                            .font(.subheadline)
+                            .foregroundStyle(BigStartPalette.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 14)
+                    } else {
+                        ForEach(items) { task in
+                            TaskRowView(task: task, dateKey: dateKey, highlighted: viewModel.highlightedTaskID == task.id)
+                                .task {
+                                    if viewModel.highlightedTaskID == task.id {
+                                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                                        viewModel.clearHighlightIfNeeded(taskID: task.id)
+                                    }
                                 }
-                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+struct CalendarSummaryStat: View {
+    let label: String
+    let value: Int
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(BigStartPalette.textSecondary)
+            Text("\(value)")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(BigStartPalette.textPrimary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(tint)
+        )
     }
 }
 
@@ -385,8 +457,9 @@ struct TaskRowView: View {
     var body: some View {
         BigStartSwipeRow(
             swipeID: "task-\(dateKey)-\(task.id)",
-            leadingWidth: 146,
-            trailingWidth: 146,
+            leadingWidth: 164,
+            trailingWidth: 164,
+            interactionProfile: .task,
             onTap: {
                 if !task.done {
                     viewModel.openTaskEditor(task: task, dateKey: dateKey)
@@ -417,7 +490,7 @@ struct TaskRowView: View {
                         Text(task.text)
                             .font(.system(size: 16, weight: .medium))
                             .strikethrough(task.done)
-                            .foregroundStyle(task.done ? .secondary : .primary)
+                            .foregroundStyle(task.done ? BigStartPalette.textSecondary : BigStartPalette.textPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .lineLimit(1)
 
@@ -481,8 +554,9 @@ struct CalendarTaskRowView: View {
     var body: some View {
         BigStartSwipeRow(
             swipeID: "calendar-task-\(dateKey)-\(task.id)",
-            leadingWidth: 146,
-            trailingWidth: 146,
+            leadingWidth: 164,
+            trailingWidth: 164,
+            interactionProfile: .task,
             onTap: {
                 if !task.done {
                     viewModel.openTaskEditor(task: task, dateKey: dateKey)
@@ -502,7 +576,7 @@ struct CalendarTaskRowView: View {
                     Text(task.text)
                         .font(.system(size: 16, weight: .medium))
                         .strikethrough(task.done)
-                        .foregroundStyle(task.done ? .secondary : .primary)
+                        .foregroundStyle(task.done ? BigStartPalette.textSecondary : BigStartPalette.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .lineLimit(1)
 
@@ -557,6 +631,7 @@ struct TaskSummaryRow: View {
                 .foregroundStyle(task.done ? BigStartPalette.accent : .secondary)
             Text(task.text)
                 .strikethrough(task.done)
+                .foregroundStyle(task.done ? BigStartPalette.textSecondary : BigStartPalette.textPrimary)
             Spacer()
             if task.pinnedAt != nil {
                 Image(systemName: "pin.fill")
@@ -580,6 +655,7 @@ struct MemoRowView: View {
             swipeID: "memo-\(memo.id)",
             leadingWidth: 0,
             trailingWidth: 92,
+            interactionProfile: .memo,
             onTap: {
                 viewModel.openMemoEditor(memo)
             },
@@ -588,14 +664,14 @@ struct MemoRowView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(DateKey.memoTitle(dateKey: memo.date, taskTitle: memo.taskTitle))
                             .font(.headline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(BigStartPalette.textPrimary)
                         Text(memo.content.isEmpty ? "暂无内容" : memo.content)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BigStartPalette.textSecondary)
                             .lineLimit(3)
                         Text("• \(DateKey.timeLabel(timestamp: memo.createdAt))")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BigStartPalette.textSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .overlay(
@@ -633,7 +709,7 @@ struct CalendarGridView: View {
             ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) { day in
                 Text(day)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BigStartPalette.textSecondary)
                     .frame(maxWidth: .infinity)
             }
 
@@ -664,7 +740,7 @@ struct CalendarGridView: View {
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .padding(.vertical, 8)
                         .background(isSelected ? BigStartPalette.accent : Color.white.opacity(0.82))
-                        .foregroundStyle(isSelected ? .white : .primary)
+                        .foregroundStyle(isSelected ? .white : BigStartPalette.textPrimary)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .buttonStyle(.plain)
@@ -750,9 +826,10 @@ struct SearchResultRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(result.title)
                 .font(.headline)
+                .foregroundStyle(BigStartPalette.textPrimary)
             Text(result.subtitle)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BigStartPalette.textSecondary)
         }
         .padding(.vertical, 4)
     }
@@ -760,6 +837,8 @@ struct SearchResultRow: View {
 
 enum BigStartPalette {
     static let accent = Color(red: 0.10, green: 0.45, blue: 0.91)
+    static let textPrimary = Color(red: 0.15, green: 0.17, blue: 0.22)
+    static let textSecondary = Color(red: 0.49, green: 0.53, blue: 0.60)
     static let accentGradient = LinearGradient(
         colors: [
             Color(red: 0.10, green: 0.45, blue: 0.91),
@@ -795,7 +874,7 @@ struct CircleIconButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(BigStartPalette.textPrimary)
                 .frame(width: 32, height: 32)
                 .background(Color.black.opacity(0.05))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -850,10 +929,69 @@ struct SwipeActionPill: View {
 }
 
 struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: View>: View {
+    enum InteractionProfile {
+        case task
+        case memo
+
+        func openThreshold(for width: CGFloat) -> CGFloat {
+            switch self {
+            case .task:
+                return min(width, max(112, width * 0.68))
+            case .memo:
+                return min(width, max(64, width * 0.7))
+            }
+        }
+
+        func closeThreshold(for width: CGFloat) -> CGFloat {
+            switch self {
+            case .task:
+                return width * 0.76
+            case .memo:
+                return min(width, max(72, width * 0.78))
+            }
+        }
+
+        func switchThreshold(for width: CGFloat) -> CGFloat {
+            switch self {
+            case .task:
+                return min(width, max(140, width * 0.85))
+            case .memo:
+                return width
+            }
+        }
+
+        var closedActivationDistance: CGFloat {
+            18
+        }
+
+        var openActivationDistance: CGFloat {
+            switch self {
+            case .task:
+                return 12
+            case .memo:
+                return 10
+            }
+        }
+
+        var closedDominanceRatio: CGFloat {
+            1.45
+        }
+
+        var openDominanceRatio: CGFloat {
+            switch self {
+            case .task:
+                return 1.2
+            case .memo:
+                return 1.12
+            }
+        }
+    }
+
     @EnvironmentObject private var viewModel: AppViewModel
     let swipeID: String
     let leadingWidth: CGFloat
     let trailingWidth: CGFloat
+    let interactionProfile: InteractionProfile
     let onTap: () -> Void
     @ViewBuilder let content: Content
     @ViewBuilder let leadingActions: LeadingActions
@@ -942,7 +1080,7 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
                 closeActions()
             }
         }
-        .gesture(dragGesture)
+        .simultaneousGesture(dragGesture)
         .animation(settleAnimation, value: settledOffset)
         .onChange(of: viewModel.openSwipeID) { openID in
             if openID != swipeID && settledOffset != 0 {
@@ -950,6 +1088,9 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
             }
         }
         .onDisappear {
+            if isDraggingHorizontally {
+                viewModel.setSwipeDragging(false)
+            }
             if viewModel.openSwipeID == swipeID {
                 viewModel.setOpenSwipe(id: nil)
             }
@@ -957,12 +1098,18 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
     }
 
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 10, coordinateSpace: .local)
+        DragGesture(minimumDistance: 6, coordinateSpace: .local)
             .onChanged { value in
                 if !isDraggingHorizontally {
-                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    let horizontal = abs(value.translation.width)
+                    let vertical = abs(value.translation.height)
+                    let activationDistance = settledOffset == 0 ? interactionProfile.closedActivationDistance : interactionProfile.openActivationDistance
+                    let dominanceRatio = settledOffset == 0 ? interactionProfile.closedDominanceRatio : interactionProfile.openDominanceRatio
+                    guard horizontal >= activationDistance else { return }
+                    guard horizontal > max(vertical * dominanceRatio, vertical + 10) else { return }
                     isDraggingHorizontally = true
                     dragBaseOffset = settledOffset
+                    viewModel.setSwipeDragging(true)
                     if viewModel.openSwipeID != nil && viewModel.openSwipeID != swipeID {
                         viewModel.setOpenSwipe(id: nil)
                     }
@@ -973,18 +1120,45 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
             .onEnded { value in
                 guard isDraggingHorizontally else { return }
 
+                let actual = min(max(dragBaseOffset + value.translation.width, -trailingWidth), leadingWidth)
                 let projected = dragBaseOffset + value.predictedEndTranslation.width
                 let proposed = min(max(projected, -trailingWidth), leadingWidth)
-                let leadingThreshold = min(leadingWidth, max(88, leadingWidth * 0.6))
-                let trailingThreshold = min(trailingWidth, max(88, trailingWidth * 0.6))
+                let leadingOpenThreshold = interactionProfile.openThreshold(for: leadingWidth)
+                let trailingOpenThreshold = interactionProfile.openThreshold(for: trailingWidth)
+                let leadingCloseThreshold = interactionProfile.closeThreshold(for: leadingWidth)
+                let trailingCloseThreshold = interactionProfile.closeThreshold(for: trailingWidth)
+                let leadingSwitchThreshold = interactionProfile.switchThreshold(for: leadingWidth)
+                let trailingSwitchThreshold = interactionProfile.switchThreshold(for: trailingWidth)
 
                 let targetOffset: CGFloat
                 let openSwipeID: String?
 
-                if proposed > leadingThreshold && leadingWidth > 0 {
+                if dragBaseOffset > 0 {
+                    if trailingWidth > 0 && actual < -trailingSwitchThreshold {
+                        targetOffset = -trailingWidth
+                        openSwipeID = swipeID
+                    } else if actual < leadingCloseThreshold {
+                        targetOffset = 0
+                        openSwipeID = nil
+                    } else {
+                        targetOffset = leadingWidth
+                        openSwipeID = swipeID
+                    }
+                } else if dragBaseOffset < 0 {
+                    if leadingWidth > 0 && actual > leadingSwitchThreshold {
+                        targetOffset = leadingWidth
+                        openSwipeID = swipeID
+                    } else if actual > -trailingCloseThreshold {
+                        targetOffset = 0
+                        openSwipeID = nil
+                    } else {
+                        targetOffset = -trailingWidth
+                        openSwipeID = swipeID
+                    }
+                } else if proposed > leadingOpenThreshold && leadingWidth > 0 {
                     targetOffset = leadingWidth
                     openSwipeID = swipeID
-                } else if proposed < -trailingThreshold && trailingWidth > 0 {
+                } else if proposed < -trailingOpenThreshold && trailingWidth > 0 {
                     targetOffset = -trailingWidth
                     openSwipeID = swipeID
                 } else {
@@ -999,6 +1173,7 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
                 }
 
                 dragBaseOffset = 0
+                viewModel.setSwipeDragging(false)
 
                 if openSwipeID == swipeID {
                     viewModel.setOpenSwipe(id: swipeID)
@@ -1015,6 +1190,7 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
             isDraggingHorizontally = false
         }
         dragBaseOffset = 0
+        viewModel.setSwipeDragging(false)
         if viewModel.openSwipeID == swipeID {
             viewModel.setOpenSwipe(id: nil)
         }
@@ -1032,7 +1208,7 @@ struct CompactProgressPill: View {
             }
             Text("\(progress.done)/\(progress.total)")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BigStartPalette.textSecondary)
         }
     }
 }

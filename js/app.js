@@ -19,8 +19,57 @@
       active: true,
       completed: true
     };
-    const SWIPE_REVEAL_WIDTH = 146;
-    const SWIPE_OPEN_THRESHOLD = 88;
+    const TASK_SWIPE_REVEAL_WIDTH = 164;
+    const TASK_SWIPE_OPEN_THRESHOLD = 112;
+    const TASK_SWIPE_CLOSE_THRESHOLD = 124;
+    const TASK_SWIPE_SWITCH_THRESHOLD = 140;
+    const MEMO_SWIPE_REVEAL_WIDTH = 92;
+    const MEMO_SWIPE_OPEN_THRESHOLD = 64;
+    const MEMO_SWIPE_CLOSE_THRESHOLD = 72;
+    const swipeScrollLock = {
+      count: 0,
+      scrollY: 0,
+      position: '',
+      top: '',
+      left: '',
+      right: '',
+      width: '',
+      overflow: ''
+    };
+
+    function lockSwipeScroll() {
+      if (swipeScrollLock.count === 0) {
+        swipeScrollLock.scrollY = window.scrollY || window.pageYOffset || 0;
+        swipeScrollLock.position = document.body.style.position;
+        swipeScrollLock.top = document.body.style.top;
+        swipeScrollLock.left = document.body.style.left;
+        swipeScrollLock.right = document.body.style.right;
+        swipeScrollLock.width = document.body.style.width;
+        swipeScrollLock.overflow = document.body.style.overflow;
+        document.body.style.position = 'fixed';
+        document.body.style.top = `-${swipeScrollLock.scrollY}px`;
+        document.body.style.left = '0';
+        document.body.style.right = '0';
+        document.body.style.width = '100%';
+        document.body.style.overflow = 'hidden';
+      }
+      swipeScrollLock.count += 1;
+    }
+
+    function unlockSwipeScroll() {
+      if (swipeScrollLock.count === 0) return;
+      swipeScrollLock.count -= 1;
+      if (swipeScrollLock.count > 0) return;
+      document.body.style.position = swipeScrollLock.position;
+      document.body.style.top = swipeScrollLock.top;
+      document.body.style.left = swipeScrollLock.left;
+      document.body.style.right = swipeScrollLock.right;
+      document.body.style.width = swipeScrollLock.width;
+      document.body.style.overflow = swipeScrollLock.overflow;
+      const restoreY = swipeScrollLock.scrollY;
+      swipeScrollLock.scrollY = 0;
+      window.scrollTo(0, restoreY);
+    }
 
     function dateKey(d) {
       const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
@@ -102,11 +151,11 @@
     function closeSwipeActions() {
       openSwipeKey = null;
       openSwipeDirection = null;
-      document.querySelectorAll('.task-swipe-item.swiped-left, .task-swipe-item.swiped-right').forEach(el => {
+      document.querySelectorAll('.task-swipe-item.swiped-left, .task-swipe-item.swiped-right, .memo-swipe-item.swiped-left').forEach(el => {
         el.classList.remove('swiped-left');
         el.classList.remove('swiped-right');
       });
-      document.querySelectorAll('.task-card').forEach(el => {
+      document.querySelectorAll('.task-card, .memo-card').forEach(el => {
         el.style.transform = '';
         el.style.transition = '';
       });
@@ -118,7 +167,8 @@
       openSwipeDirection = direction;
       wrapper.classList.add(direction === 'right' ? 'swiped-right' : 'swiped-left');
       card.style.transition = 'transform 0.2s ease';
-      card.style.transform = `translateX(${direction === 'right' ? SWIPE_REVEAL_WIDTH : -SWIPE_REVEAL_WIDTH}px)`;
+      const revealWidth = wrapper.classList.contains('memo-swipe-item') ? MEMO_SWIPE_REVEAL_WIDTH : TASK_SWIPE_REVEAL_WIDTH;
+      card.style.transform = `translateX(${direction === 'right' ? revealWidth : -revealWidth}px)`;
     }
 
     function deleteTaskByIndex(key, idx) {
@@ -223,15 +273,57 @@
 
     function bindTaskSwipe(wrapper, card, swipeKey) {
       let startX = 0;
+      let startY = 0;
       let deltaX = 0;
+      let deltaY = 0;
       let dragging = false;
       let isPointerDown = false;
-      const maxSwipe = SWIPE_REVEAL_WIDTH;
+      let dragAxis = null;
+      let capturedPointerId = null;
+      let scrollLocked = false;
+      let pointerType = 'mouse';
+      const maxSwipe = TASK_SWIPE_REVEAL_WIDTH;
 
       const updateTransform = (value) => {
         card.style.transition = 'none';
         card.style.transform = `translateX(${value}px)`;
       };
+
+      const capturePointer = (pointerId) => {
+        if (capturedPointerId !== null || typeof card.setPointerCapture !== 'function') return;
+        try {
+          card.setPointerCapture(pointerId);
+          capturedPointerId = pointerId;
+        } catch (_) {}
+      };
+
+      const releasePointer = (e) => {
+        const pointerId = e && e.pointerId !== undefined ? e.pointerId : capturedPointerId;
+        if (capturedPointerId !== null && typeof card.releasePointerCapture === 'function' && pointerId !== null) {
+          try { card.releasePointerCapture(pointerId); } catch (_) {}
+        }
+        capturedPointerId = null;
+      };
+
+      const lockScroll = () => {
+        if (scrollLocked || pointerType === 'mouse') return;
+        scrollLocked = true;
+        lockSwipeScroll();
+      };
+
+      const unlockScroll = () => {
+        if (!scrollLocked) return;
+        scrollLocked = false;
+        unlockSwipeScroll();
+      };
+
+      const currentActivationDistance = () => (
+        wrapper.classList.contains('swiped-left') || wrapper.classList.contains('swiped-right') ? 12 : 18
+      );
+
+      const currentDominanceRatio = () => (
+        wrapper.classList.contains('swiped-left') || wrapper.classList.contains('swiped-right') ? 1.18 : 1.45
+      );
 
       card.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -243,39 +335,90 @@
         }
         isPointerDown = true;
         dragging = false;
+        dragAxis = null;
+        pointerType = e.pointerType || 'mouse';
         card.dataset.suppressClick = '0';
         startX = e.clientX;
+        startY = e.clientY;
         deltaX = 0;
+        deltaY = 0;
         card.style.transition = 'none';
-        if (typeof card.setPointerCapture === 'function') {
-          try { card.setPointerCapture(e.pointerId); } catch (_) {}
-        }
       });
 
       card.addEventListener('pointermove', (e) => {
         if (!isPointerDown) return;
         deltaX = e.clientX - startX;
-        if (!dragging && Math.abs(deltaX) < 8) return;
-        dragging = true;
+        deltaY = e.clientY - startY;
+        if (!dragAxis) {
+          const absX = Math.abs(deltaX);
+          const absY = Math.abs(deltaY);
+          const activationDistance = currentActivationDistance();
+          const dominanceRatio = currentDominanceRatio();
+          if (absY >= 10 && absY > absX) {
+            dragAxis = 'y';
+            releasePointer(e);
+            return;
+          }
+          if (absX < activationDistance) return;
+          if (absX <= Math.max(absY * dominanceRatio, absY + 10)) return;
+          dragAxis = 'x';
+          dragging = true;
+          card.dataset.suppressClick = '1';
+          capturePointer(e.pointerId);
+          lockScroll();
+        }
+        if (dragAxis !== 'x') return;
         e.preventDefault();
         e.stopPropagation();
         const base = wrapper.classList.contains('swiped-right') ? maxSwipe : (wrapper.classList.contains('swiped-left') ? -maxSwipe : 0);
         let next = base + deltaX;
         next = Math.max(-maxSwipe, Math.min(maxSwipe, next));
-        card.dataset.suppressClick = '1';
         updateTransform(next);
       });
 
-      const finishGesture = () => {
+      const finishGesture = (e) => {
         if (!isPointerDown) return;
         isPointerDown = false;
-        if (!dragging) return;
+        const wasHorizontalDrag = dragging && dragAxis === 'x';
         dragging = false;
+        dragAxis = null;
+        unlockScroll();
+        releasePointer(e);
+        if (!wasHorizontalDrag) return;
+        const isOpenRight = wrapper.classList.contains('swiped-right');
+        const isOpenLeft = wrapper.classList.contains('swiped-left');
         const base = wrapper.classList.contains('swiped-right') ? maxSwipe : (wrapper.classList.contains('swiped-left') ? -maxSwipe : 0);
         const finalX = Math.max(-maxSwipe, Math.min(maxSwipe, base + deltaX));
+        const openThreshold = TASK_SWIPE_OPEN_THRESHOLD;
+        const closeThreshold = TASK_SWIPE_CLOSE_THRESHOLD;
+        const switchThreshold = TASK_SWIPE_SWITCH_THRESHOLD;
         card.style.transition = 'transform 0.2s ease';
-        if (finalX <= -SWIPE_OPEN_THRESHOLD) setSwipeOpen(wrapper, card, swipeKey, 'left');
-        else if (finalX >= SWIPE_OPEN_THRESHOLD) setSwipeOpen(wrapper, card, swipeKey, 'right');
+        if (isOpenRight) {
+          if (finalX <= -switchThreshold) setSwipeOpen(wrapper, card, swipeKey, 'left');
+          else if (finalX >= closeThreshold) setSwipeOpen(wrapper, card, swipeKey, 'right');
+          else {
+            wrapper.classList.remove('swiped-left');
+            wrapper.classList.remove('swiped-right');
+            if (openSwipeKey === swipeKey) {
+              openSwipeKey = null;
+              openSwipeDirection = null;
+            }
+            card.style.transform = 'translateX(0)';
+          }
+        } else if (isOpenLeft) {
+          if (finalX >= switchThreshold) setSwipeOpen(wrapper, card, swipeKey, 'right');
+          else if (finalX <= -closeThreshold) setSwipeOpen(wrapper, card, swipeKey, 'left');
+          else {
+            wrapper.classList.remove('swiped-left');
+            wrapper.classList.remove('swiped-right');
+            if (openSwipeKey === swipeKey) {
+              openSwipeKey = null;
+              openSwipeDirection = null;
+            }
+            card.style.transform = 'translateX(0)';
+          }
+        } else if (finalX <= -openThreshold) setSwipeOpen(wrapper, card, swipeKey, 'left');
+        else if (finalX >= openThreshold) setSwipeOpen(wrapper, card, swipeKey, 'right');
         else {
           wrapper.classList.remove('swiped-left');
           wrapper.classList.remove('swiped-right');
@@ -284,9 +427,6 @@
             openSwipeDirection = null;
           }
           card.style.transform = 'translateX(0)';
-        }
-        if (typeof card.releasePointerCapture === 'function' && e && e.pointerId !== undefined) {
-          try { card.releasePointerCapture(e.pointerId); } catch (_) {}
         }
       };
 
@@ -422,15 +562,57 @@
 
     function bindMemoSwipe(wrapper, card, swipeKey) {
       let startX = 0;
+      let startY = 0;
       let deltaX = 0;
+      let deltaY = 0;
       let dragging = false;
       let isPointerDown = false;
-      const maxSwipe = SWIPE_REVEAL_WIDTH;
+      let dragAxis = null;
+      let capturedPointerId = null;
+      let scrollLocked = false;
+      let pointerType = 'mouse';
+      const maxSwipe = MEMO_SWIPE_REVEAL_WIDTH;
 
       const updateTransform = (value) => {
         card.style.transition = 'none';
         card.style.transform = `translateX(${value}px)`;
       };
+
+      const capturePointer = (pointerId) => {
+        if (capturedPointerId !== null || typeof card.setPointerCapture !== 'function') return;
+        try {
+          card.setPointerCapture(pointerId);
+          capturedPointerId = pointerId;
+        } catch (_) {}
+      };
+
+      const releasePointer = (e) => {
+        const pointerId = e && e.pointerId !== undefined ? e.pointerId : capturedPointerId;
+        if (capturedPointerId !== null && typeof card.releasePointerCapture === 'function' && pointerId !== null) {
+          try { card.releasePointerCapture(pointerId); } catch (_) {}
+        }
+        capturedPointerId = null;
+      };
+
+      const lockScroll = () => {
+        if (scrollLocked || pointerType === 'mouse') return;
+        scrollLocked = true;
+        lockSwipeScroll();
+      };
+
+      const unlockScroll = () => {
+        if (!scrollLocked) return;
+        scrollLocked = false;
+        unlockSwipeScroll();
+      };
+
+      const currentActivationDistance = () => (
+        wrapper.classList.contains('swiped-left') ? 12 : 18
+      );
+
+      const currentDominanceRatio = () => (
+        wrapper.classList.contains('swiped-left') ? 1.18 : 1.45
+      );
 
       card.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -441,36 +623,61 @@
         }
         isPointerDown = true;
         dragging = false;
+        dragAxis = null;
+        pointerType = e.pointerType || 'mouse';
         card.dataset.suppressClick = '0';
         startX = e.clientX;
+        startY = e.clientY;
         deltaX = 0;
+        deltaY = 0;
         card.style.transition = 'none';
-        if (typeof card.setPointerCapture === 'function') {
-          try { card.setPointerCapture(e.pointerId); } catch (_) {}
-        }
       });
 
       card.addEventListener('pointermove', (e) => {
         if (!isPointerDown) return;
         deltaX = e.clientX - startX;
-        if (!dragging && Math.abs(deltaX) < 8) return;
-        dragging = true;
+        deltaY = e.clientY - startY;
+        if (!dragAxis) {
+          const absX = Math.abs(deltaX);
+          const absY = Math.abs(deltaY);
+          const activationDistance = currentActivationDistance();
+          const dominanceRatio = currentDominanceRatio();
+          if (absY >= 10 && absY > absX) {
+            dragAxis = 'y';
+            releasePointer(e);
+            return;
+          }
+          if (absX < activationDistance) return;
+          if (absX <= Math.max(absY * dominanceRatio, absY + 10)) return;
+          dragAxis = 'x';
+          dragging = true;
+          card.dataset.suppressClick = '1';
+          capturePointer(e.pointerId);
+          lockScroll();
+        }
+        if (dragAxis !== 'x') return;
         e.preventDefault();
         e.stopPropagation();
         let next = deltaX;
         next = Math.max(-maxSwipe, Math.min(0, next));
-        card.dataset.suppressClick = '1';
         updateTransform(next);
       });
 
       const finishGesture = (e) => {
         if (!isPointerDown) return;
         isPointerDown = false;
-        if (!dragging) return;
+        const wasHorizontalDrag = dragging && dragAxis === 'x';
         dragging = false;
+        dragAxis = null;
+        unlockScroll();
+        releasePointer(e);
+        if (!wasHorizontalDrag) return;
+        const isOpenLeft = wrapper.classList.contains('swiped-left');
         const finalX = Math.max(-maxSwipe, Math.min(0, deltaX));
+        const openThreshold = MEMO_SWIPE_OPEN_THRESHOLD;
+        const closeThreshold = MEMO_SWIPE_CLOSE_THRESHOLD;
         card.style.transition = 'transform 0.2s ease';
-        if (finalX <= -SWIPE_OPEN_THRESHOLD) setSwipeOpen(wrapper, card, swipeKey, 'left');
+        if (isOpenLeft ? finalX <= -closeThreshold : finalX <= -openThreshold) setSwipeOpen(wrapper, card, swipeKey, 'left');
         else {
           wrapper.classList.remove('swiped-left');
           if (openSwipeKey === swipeKey) {
@@ -478,9 +685,6 @@
             openSwipeDirection = null;
           }
           card.style.transform = 'translateX(0)';
-        }
-        if (typeof card.releasePointerCapture === 'function' && e && e.pointerId !== undefined) {
-          try { card.releasePointerCapture(e.pointerId); } catch (_) {}
         }
       };
 
@@ -699,18 +903,19 @@
       `;
     }
 
-    function buildVisibleTaskSections(sections, scope) {
+    function buildVisibleTaskSections(sections, scope, includeEmpty = false) {
       const activeTitle = scope === 'calendar' ? '未完成' : '今天';
-      return [
-        { id: 'pinned', title: '置顶', items: sections.pinned },
-        { id: 'active', title: activeTitle, items: sections.active },
-        { id: 'completed', title: '已完成', items: sections.completed }
-      ].filter(section => section.items.length > 0);
+      const sectionDefs = [
+        { id: 'pinned', title: '置顶', items: sections.pinned, emptyText: '当天暂无置顶任务' },
+        { id: 'active', title: activeTitle, items: sections.active, emptyText: scope === 'calendar' ? '当天暂无未完成任务' : '今天暂无任务' },
+        { id: 'completed', title: '已完成', items: sections.completed, emptyText: '当天暂无已完成任务' }
+      ];
+      return includeEmpty ? sectionDefs : sectionDefs.filter(section => section.items.length > 0);
     }
 
-    function renderTaskSectionsMarkup(sections, key, scopePrefix) {
-      return buildVisibleTaskSections(sections, scopePrefix)
-        .map(section => renderTaskSection(section.id, section.title, section.items, '', key, scopePrefix))
+    function renderTaskSectionsMarkup(sections, key, scopePrefix, includeEmpty = false) {
+      return buildVisibleTaskSections(sections, scopePrefix, includeEmpty)
+        .map(section => renderTaskSection(section.id, section.title, section.items, section.emptyText || '', key, scopePrefix))
         .join('');
     }
 
@@ -894,13 +1099,9 @@
       document.getElementById('summary-progress-text').textContent = `${done}/${total}`;
       document.getElementById('summary-date').textContent = formatDateLong(selectedDate);
       const container = document.getElementById('summary-tasks');
-      if (list.length === 0) {
-        openSwipeKey = null;
-        container.innerHTML = '';
-        return;
-      }
+      if (list.length === 0) openSwipeKey = null;
       const sections = groupTodosForSections(list);
-      container.innerHTML = renderTaskSectionsMarkup(sections, key, 'calendar');
+      container.innerHTML = renderTaskSectionsMarkup(sections, key, 'calendar', true);
       container.querySelectorAll('[data-section-toggle]').forEach(btn => {
         btn.onclick = () => {
           const id = btn.dataset.sectionToggle;
@@ -1049,10 +1250,6 @@
       selectedDate.setMonth(selectedDate.getMonth() + 1);
       saveData();
       renderCalendar();
-    };
-
-    document.getElementById('view-detail-btn').onclick = () => {
-      switchTab('list');
     };
 
     function formatInputDateShort(d) {

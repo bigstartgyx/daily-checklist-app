@@ -124,6 +124,7 @@ final class AppViewModel: ObservableObject {
     @Published var highlightedTaskID: String?
     @Published var highlightedMemoID: String?
     @Published var openSwipeID: String?
+    @Published var isSwipeDragging = false
 
     let config: AppConfig
     private var didBootstrap = false
@@ -390,6 +391,10 @@ final class AppViewModel: ObservableObject {
 
     func setOpenSwipe(id: String?) {
         openSwipeID = id
+    }
+
+    func setSwipeDragging(_ isDragging: Bool) {
+        isSwipeDragging = isDragging
     }
 
     private func apply(snapshot: PersistedSnapshot) {

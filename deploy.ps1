@@ -32,7 +32,7 @@ $excludeArgs = ($exclude | ForEach-Object { "--exclude=$_" }) -join " "
 
 # scp 不支持排除，用 tar + ssh 或 robocopy
 # 简单方案：先打包再 scp
-$tempDir = Join-Path $env:TEMP "daily-checklist-deploy"
+$tempDir = Join-Path $env:TEMP "daily-checklist-app"
 if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
 New-Item -ItemType Directory -Path $tempDir | Out-Null
 
