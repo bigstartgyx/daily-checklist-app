@@ -860,15 +860,19 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
     @ViewBuilder let trailingActions: TrailingActions
 
     @State private var settledOffset: CGFloat = 0
-    @GestureState private var dragOffset: CGFloat = 0
+    // Keep drag state in @State so SwiftUI does not auto-reset it to zero at
+    // gesture end, which causes the visible "snap back then open" rebound.
+    @State private var dragTranslation: CGFloat = 0
+    @State private var dragBaseOffset: CGFloat = 0
+    @State private var isDraggingHorizontally = false
 
     private var currentOffset: CGFloat {
-        let raw = settledOffset + dragOffset
+        let raw = isDraggingHorizontally ? (dragBaseOffset + dragTranslation) : settledOffset
         return min(max(raw, -trailingWidth), leadingWidth)
     }
 
     private var actionsAreOpen: Bool {
-        settledOffset != 0 && dragOffset == 0
+        settledOffset != 0 && !isDraggingHorizontally
     }
 
     private var settleAnimation: Animation {
@@ -954,30 +958,52 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
 
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 10, coordinateSpace: .local)
-            .updating($dragOffset) { value, state, _ in
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                state = value.translation.width
+            .onChanged { value in
+                if !isDraggingHorizontally {
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    isDraggingHorizontally = true
+                    dragBaseOffset = settledOffset
+                    if viewModel.openSwipeID != nil && viewModel.openSwipeID != swipeID {
+                        viewModel.setOpenSwipe(id: nil)
+                    }
+                }
+
+                dragTranslation = value.translation.width
             }
             .onEnded { value in
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                let projected = settledOffset + value.predictedEndTranslation.width
+                guard isDraggingHorizontally else { return }
+
+                let projected = dragBaseOffset + value.predictedEndTranslation.width
                 let proposed = min(max(projected, -trailingWidth), leadingWidth)
                 let leadingThreshold = min(leadingWidth, max(88, leadingWidth * 0.6))
                 let trailingThreshold = min(trailingWidth, max(88, trailingWidth * 0.6))
 
+                let targetOffset: CGFloat
+                let openSwipeID: String?
+
+                if proposed > leadingThreshold && leadingWidth > 0 {
+                    targetOffset = leadingWidth
+                    openSwipeID = swipeID
+                } else if proposed < -trailingThreshold && trailingWidth > 0 {
+                    targetOffset = -trailingWidth
+                    openSwipeID = swipeID
+                } else {
+                    targetOffset = 0
+                    openSwipeID = nil
+                }
+
                 withAnimation(settleAnimation) {
-                    if proposed > leadingThreshold && leadingWidth > 0 {
-                        settledOffset = leadingWidth
-                        viewModel.setOpenSwipe(id: swipeID)
-                    } else if proposed < -trailingThreshold && trailingWidth > 0 {
-                        settledOffset = -trailingWidth
-                        viewModel.setOpenSwipe(id: swipeID)
-                    } else {
-                        settledOffset = 0
-                        if viewModel.openSwipeID == swipeID {
-                            viewModel.setOpenSwipe(id: nil)
-                        }
-                    }
+                    settledOffset = targetOffset
+                    dragTranslation = 0
+                    isDraggingHorizontally = false
+                }
+
+                dragBaseOffset = 0
+
+                if openSwipeID == swipeID {
+                    viewModel.setOpenSwipe(id: swipeID)
+                } else if viewModel.openSwipeID == swipeID {
+                    viewModel.setOpenSwipe(id: nil)
                 }
             }
     }
@@ -985,7 +1011,10 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
     private func closeActions() {
         withAnimation(settleAnimation) {
             settledOffset = 0
+            dragTranslation = 0
+            isDraggingHorizontally = false
         }
+        dragBaseOffset = 0
         if viewModel.openSwipeID == swipeID {
             viewModel.setOpenSwipe(id: nil)
         }
