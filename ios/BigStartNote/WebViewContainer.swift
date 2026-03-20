@@ -864,17 +864,15 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
 
     private var currentOffset: CGFloat {
         let raw = settledOffset + dragOffset
-        if raw > leadingWidth {
-            return leadingWidth + resistedDistance(raw - leadingWidth)
-        }
-        if raw < -trailingWidth {
-            return -trailingWidth - resistedDistance(abs(raw) - trailingWidth)
-        }
-        return raw
+        return min(max(raw, -trailingWidth), leadingWidth)
     }
 
     private var actionsAreOpen: Bool {
         settledOffset != 0 && dragOffset == 0
+    }
+
+    private var settleAnimation: Animation {
+        .easeOut(duration: 0.16)
     }
 
     var body: some View {
@@ -925,7 +923,7 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
                 .allowsHitTesting(!actionsAreOpen)
                 .onTapGesture {
                     if settledOffset != 0 {
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                        withAnimation(settleAnimation) {
                             settledOffset = 0
                         }
                     } else {
@@ -941,7 +939,7 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
             }
         }
         .gesture(dragGesture)
-        .animation(.spring(response: 0.24, dampingFraction: 0.82), value: settledOffset)
+        .animation(settleAnimation, value: settledOffset)
         .onChange(of: viewModel.openSwipeID) { openID in
             if openID != swipeID && settledOffset != 0 {
                 closeActions()
@@ -962,11 +960,12 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
             }
             .onEnded { value in
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                let proposed = min(max(settledOffset + value.translation.width, -trailingWidth), leadingWidth)
+                let projected = settledOffset + value.predictedEndTranslation.width
+                let proposed = min(max(projected, -trailingWidth), leadingWidth)
                 let leadingThreshold = min(leadingWidth, max(88, leadingWidth * 0.6))
                 let trailingThreshold = min(trailingWidth, max(88, trailingWidth * 0.6))
 
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                withAnimation(settleAnimation) {
                     if proposed > leadingThreshold && leadingWidth > 0 {
                         settledOffset = leadingWidth
                         viewModel.setOpenSwipe(id: swipeID)
@@ -984,16 +983,12 @@ struct BigStartSwipeRow<Content: View, LeadingActions: View, TrailingActions: Vi
     }
 
     private func closeActions() {
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+        withAnimation(settleAnimation) {
             settledOffset = 0
         }
         if viewModel.openSwipeID == swipeID {
             viewModel.setOpenSwipe(id: nil)
         }
-    }
-
-    private func resistedDistance(_ extra: CGFloat) -> CGFloat {
-        min(40, sqrt(max(0, extra)) * 6)
     }
 }
 
