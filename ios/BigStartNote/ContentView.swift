@@ -2,31 +2,62 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var viewModel = AppViewModel()
+    @StateObject private var recorder = AudioRecorderManager()
+    @StateObject private var transcriber = SpeechTranscriber()
+
+    @State private var keyboardHeight: CGFloat = 0
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            BigStartBackground()
-                .ignoresSafeArea()
+        GeometryReader { proxy in
+            ZStack {
+                BigStartBackground()
+                    .ignoresSafeArea()
 
-            Group {
-                switch viewModel.selectedTab {
-                case .list:
-                    ChecklistScreen()
-                case .calendar:
-                    CalendarScreen()
-                case .memo:
-                    MemoScreen()
-                case .ai:
-                    PlaceholderScreen(title: "AI 助手", description: "AI 助手功能敬请期待", systemImage: "sparkles")
-                case .me:
-                    PlaceholderScreen(title: "我的", description: "个人中心功能敬请期待", systemImage: "person.circle")
+                Group {
+                    switch viewModel.selectedTab {
+                    case .list:
+                        ChecklistScreen()
+                    case .calendar:
+                        CalendarScreen()
+                    case .memo:
+                        MemoScreen()
+                    case .ai:
+                        AIAssistantScreen()
+                            .environmentObject(recorder)
+                            .environmentObject(transcriber)
+                    case .me:
+                        MeSettingsScreen()
+                    }
+                }
+                .environmentObject(viewModel)
+                .padding(.bottom, contentBottomInsets(for: proxy))
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                BigStartBottomNav(selectedTab: $viewModel.selectedTab)
+                    .environmentObject(viewModel)
+                    .environmentObject(recorder)
+                    .environmentObject(transcriber)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, bottomNavInset(for: proxy))
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+                if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                    let screenHeight = UIScreen.main.bounds.height
+                    let newHeight = max(0, screenHeight - frame.minY)
+                    if newHeight != keyboardHeight {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            keyboardHeight = newHeight
+                        }
+                    }
                 }
             }
-            .environmentObject(viewModel)
-
-            BigStartBottomNav(selectedTab: $viewModel.selectedTab)
-                .padding(.horizontal, 18)
-                .padding(.bottom, 6)
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                if keyboardHeight != 0 {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        keyboardHeight = 0
+                    }
+                }
+            }
         }
         .task {
             await viewModel.bootstrap()
@@ -83,17 +114,33 @@ struct ContentView: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if viewModel.isSyncing {
-                Label("同步中", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .padding(.top, 12)
-                    .padding(.trailing, 16)
+            Group {
+                if viewModel.isSyncing {
+                    Label("同步中", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .padding(.top, 12)
+                        .padding(.trailing, 16)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
+            .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.isSyncing)
         }
+    }
+
+    private func contentBottomInsets(for proxy: GeometryProxy) -> CGFloat {
+        max(proxy.safeAreaInsets.bottom, 4)
+    }
+
+    private func bottomNavInset(for proxy: GeometryProxy) -> CGFloat {
+        navKeyboardInset(for: proxy)
+    }
+
+    private func navKeyboardInset(for proxy: GeometryProxy) -> CGFloat {
+        max(0, keyboardHeight - proxy.safeAreaInsets.bottom)
     }
 }
 
@@ -126,50 +173,132 @@ struct BigStartBackground: View {
 }
 
 struct BigStartBottomNav: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+    @EnvironmentObject private var recorder: AudioRecorderManager
+    @EnvironmentObject private var transcriber: SpeechTranscriber
     @Binding var selectedTab: AppTab
+    @State private var isPressingAIButton = false
+    @State private var didTriggerLongPress = false
+    @State private var longPressTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
-            HStack {
+            HStack(spacing: 12) {
                 NavItem(tab: .list, selectedTab: $selectedTab, label: "清单", systemImage: "checklist")
                 NavItem(tab: .calendar, selectedTab: $selectedTab, label: "日历", systemImage: "calendar")
-                Spacer(minLength: 64)
+                Spacer(minLength: 48)
                 NavItem(tab: .memo, selectedTab: $selectedTab, label: "备忘", systemImage: "note.text")
                 NavItem(tab: .me, selectedTab: $selectedTab, label: "我的", systemImage: "person")
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 12)
-            .padding(.bottom, 18)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 9)
             .background(Color.white.opacity(0.96))
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: -2)
+            .clipShape(RoundedRectangle(cornerRadius: 27, style: .continuous))
+            .shadow(color: .black.opacity(0.08), radius: 15, x: 0, y: -3)
 
-            VStack(spacing: 6) {
-                Button {
-                    selectedTab = .ai
-                } label: {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 68, height: 68)
-                        .background(
-                            LinearGradient(
-                                colors: [
+            VStack(spacing: 5) {
+                Image(systemName: recorder.isRecording ? "waveform.circle.fill" : "sparkles")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 62, height: 62)
+                    .background(
+                        LinearGradient(
+                            colors: recorder.isRecording
+                                ? [
+                                    Color(red: 0.15, green: 0.55, blue: 0.96),
+                                    Color(red: 0.06, green: 0.39, blue: 0.86)
+                                ]
+                                : [
                                     Color(red: 0.10, green: 0.45, blue: 0.91),
                                     Color(red: 0.26, green: 0.52, blue: 0.96)
                                 ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
-                        .clipShape(Circle())
-                        .shadow(color: Color.blue.opacity(0.35), radius: 20, x: 0, y: 10)
-                }
+                    )
+                    .clipShape(Circle())
+                    .shadow(color: Color.blue.opacity(0.35), radius: 22, x: 0, y: 10)
                 Text("AI 助手")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Color(red: 0.10, green: 0.45, blue: 0.91))
             }
-            .offset(y: -18)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        handleAIButtonPressBegan()
+                    }
+                    .onEnded { _ in
+                        handleAIButtonPressEnded()
+                    }
+            )
+            .onChange(of: recorder.didReachMaxDuration) { reachedLimit in
+                guard reachedLimit else { return }
+                Task {
+                    await finishVoiceCapture()
+                }
+            }
+            .onDisappear {
+                longPressTask?.cancel()
+            }
+            .offset(y: -14)
+        }
+    }
+
+    private func handleAIButtonPressBegan() {
+        guard !isPressingAIButton else { return }
+        isPressingAIButton = true
+        didTriggerLongPress = false
+
+        longPressTask?.cancel()
+        longPressTask = Task {
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            guard !Task.isCancelled, isPressingAIButton else { return }
+            didTriggerLongPress = true
+            selectedTab = .ai
+
+            guard viewModel.aiReady else {
+                viewModel.aiRequestState = .failure("请先在“我的”界面完成 AI 配置。")
+                return
+            }
+
+            do {
+                let permissionState = try await recorder.startRecording()
+                viewModel.updateMicrophonePermission(permissionState)
+                if permissionState != .granted {
+                    viewModel.aiRequestState = .failure("请先允许麦克风权限，再进行语音输入。")
+                }
+            } catch {
+                viewModel.aiRequestState = .failure(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleAIButtonPressEnded() {
+        isPressingAIButton = false
+        longPressTask?.cancel()
+        longPressTask = nil
+
+        if recorder.isRecording || recorder.hasPendingRecording {
+            Task {
+                await finishVoiceCapture()
+            }
+        } else if !didTriggerLongPress {
+            selectedTab = .ai
+        }
+
+        didTriggerLongPress = false
+    }
+
+    private func finishVoiceCapture() async {
+        do {
+            selectedTab = .ai
+            let audioURL = try recorder.finishRecording()
+            await viewModel.submitAIVoice(audioURL: audioURL, fallbackTranscriber: transcriber)
+        } catch {
+            if (error as? AudioRecorderManagerError) != .noRecording {
+                viewModel.aiRequestState = .failure(error.localizedDescription)
+            }
         }
     }
 }

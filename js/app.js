@@ -19,13 +19,18 @@
       active: true,
       completed: true
     };
+    let calendarSectionState = {
+      pinned: false,
+      active: true,
+      completed: false
+    };
     const TASK_SWIPE_REVEAL_WIDTH = 164;
     const TASK_SWIPE_OPEN_THRESHOLD = 112;
     const TASK_SWIPE_CLOSE_THRESHOLD = 124;
     const TASK_SWIPE_SWITCH_THRESHOLD = 140;
-    const MEMO_SWIPE_REVEAL_WIDTH = 92;
-    const MEMO_SWIPE_OPEN_THRESHOLD = 64;
-    const MEMO_SWIPE_CLOSE_THRESHOLD = 72;
+    const MEMO_SWIPE_REVEAL_WIDTH = 136;
+    const MEMO_SWIPE_OPEN_THRESHOLD = 24;
+    const MEMO_SWIPE_CLOSE_THRESHOLD = 40;
     const swipeScrollLock = {
       count: 0,
       scrollY: 0,
@@ -571,6 +576,7 @@
       let capturedPointerId = null;
       let scrollLocked = false;
       let pointerType = 'mouse';
+      let gestureSource = null;
       const maxSwipe = MEMO_SWIPE_REVEAL_WIDTH;
 
       const updateTransform = (value) => {
@@ -607,73 +613,76 @@
       };
 
       const currentActivationDistance = () => (
-        wrapper.classList.contains('swiped-left') ? 12 : 18
+        wrapper.classList.contains('swiped-left') ? 6 : 8
       );
 
       const currentDominanceRatio = () => (
-        wrapper.classList.contains('swiped-left') ? 1.18 : 1.45
+        wrapper.classList.contains('swiped-left') ? 1.0 : 1.08
       );
 
-      card.addEventListener('pointerdown', (e) => {
-        if (e.pointerType === 'mouse' && e.button !== 0) return;
-        if (e.target.closest('button')) return;
-        e.stopPropagation();
+      const startGesture = (clientX, clientY, source, event) => {
         if (openSwipeKey && openSwipeKey !== swipeKey) {
           closeSwipeActions();
         }
         isPointerDown = true;
         dragging = false;
         dragAxis = null;
-        pointerType = e.pointerType || 'mouse';
+        gestureSource = source;
+        pointerType = source === 'touch' ? 'touch' : 'mouse';
         card.dataset.suppressClick = '0';
-        startX = e.clientX;
-        startY = e.clientY;
+        startX = clientX;
+        startY = clientY;
         deltaX = 0;
         deltaY = 0;
         card.style.transition = 'none';
-      });
+        if (event) event.stopPropagation();
+      };
 
-      card.addEventListener('pointermove', (e) => {
+      const moveGesture = (clientX, clientY, event) => {
         if (!isPointerDown) return;
-        deltaX = e.clientX - startX;
-        deltaY = e.clientY - startY;
+        deltaX = clientX - startX;
+        deltaY = clientY - startY;
         if (!dragAxis) {
           const absX = Math.abs(deltaX);
           const absY = Math.abs(deltaY);
           const activationDistance = currentActivationDistance();
           const dominanceRatio = currentDominanceRatio();
-          if (absY >= 10 && absY > absX) {
+          if (absY >= 12 && absY > absX + 6) {
             dragAxis = 'y';
-            releasePointer(e);
+            releasePointer(event);
             return;
           }
           if (absX < activationDistance) return;
-          if (absX <= Math.max(absY * dominanceRatio, absY + 10)) return;
+          if (absX <= Math.max(absY * dominanceRatio, absY + 4)) return;
           dragAxis = 'x';
           dragging = true;
           card.dataset.suppressClick = '1';
-          capturePointer(e.pointerId);
+          if (gestureSource === 'mouse') capturePointer(event.pointerId);
           lockScroll();
         }
         if (dragAxis !== 'x') return;
-        e.preventDefault();
-        e.stopPropagation();
-        let next = deltaX;
+        event.preventDefault();
+        event.stopPropagation();
+        const base = wrapper.classList.contains('swiped-left') ? -maxSwipe : 0;
+        let next = base + deltaX;
         next = Math.max(-maxSwipe, Math.min(0, next));
         updateTransform(next);
-      });
+      };
 
-      const finishGesture = (e) => {
+      const finishGesture = (e, source) => {
         if (!isPointerDown) return;
+        if (gestureSource && source !== gestureSource) return;
         isPointerDown = false;
         const wasHorizontalDrag = dragging && dragAxis === 'x';
         dragging = false;
         dragAxis = null;
+        gestureSource = null;
         unlockScroll();
         releasePointer(e);
         if (!wasHorizontalDrag) return;
         const isOpenLeft = wrapper.classList.contains('swiped-left');
-        const finalX = Math.max(-maxSwipe, Math.min(0, deltaX));
+        const base = isOpenLeft ? -maxSwipe : 0;
+        const finalX = Math.max(-maxSwipe, Math.min(0, base + deltaX));
         const openThreshold = MEMO_SWIPE_OPEN_THRESHOLD;
         const closeThreshold = MEMO_SWIPE_CLOSE_THRESHOLD;
         card.style.transition = 'transform 0.2s ease';
@@ -688,9 +697,39 @@
         }
       };
 
-      card.addEventListener('pointerup', finishGesture);
-      card.addEventListener('pointercancel', finishGesture);
-      card.addEventListener('lostpointercapture', finishGesture);
+      card.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'touch') return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (e.target.closest('button')) return;
+        startGesture(e.clientX, e.clientY, 'mouse', e);
+      });
+
+      card.addEventListener('pointermove', (e) => {
+        if (gestureSource && gestureSource !== 'mouse') return;
+        moveGesture(e.clientX, e.clientY, e);
+      });
+
+      card.addEventListener('pointerup', (e) => finishGesture(e, 'mouse'));
+      card.addEventListener('pointercancel', (e) => finishGesture(e, 'mouse'));
+      card.addEventListener('lostpointercapture', (e) => finishGesture(e, 'mouse'));
+
+      card.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        if (e.target.closest('button')) return;
+        const touch = e.touches[0];
+        startGesture(touch.clientX, touch.clientY, 'touch', e);
+      }, { passive: true });
+
+      card.addEventListener('touchmove', (e) => {
+        if (gestureSource && gestureSource !== 'touch') return;
+        if (e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        moveGesture(touch.clientX, touch.clientY, e);
+      }, { passive: false });
+
+      card.addEventListener('touchend', (e) => finishGesture(e, 'touch'));
+      card.addEventListener('touchcancel', (e) => finishGesture(e, 'touch'));
+
       card.addEventListener('click', () => {
         if (card.dataset.suppressClick === '1') {
           setTimeout(() => { card.dataset.suppressClick = '0'; }, 0);
@@ -884,8 +923,8 @@
       `;
     }
 
-    function renderTaskSection(id, title, items, emptyText, key, scopePrefix) {
-      const expanded = listSectionState[id];
+    function renderTaskSection(id, title, items, emptyText, key, scopePrefix, sectionState = listSectionState) {
+      const expanded = sectionState[id];
       const body = items.length
         ? items.map(item => renderTaskRow(item, key, scopePrefix)).join('')
         : `<div class="task-section-empty">${emptyText}</div>`;
@@ -913,9 +952,9 @@
       return includeEmpty ? sectionDefs : sectionDefs.filter(section => section.items.length > 0);
     }
 
-    function renderTaskSectionsMarkup(sections, key, scopePrefix, includeEmpty = false) {
+    function renderTaskSectionsMarkup(sections, key, scopePrefix, includeEmpty = false, sectionState = listSectionState) {
       return buildVisibleTaskSections(sections, scopePrefix, includeEmpty)
-        .map(section => renderTaskSection(section.id, section.title, section.items, section.emptyText || '', key, scopePrefix))
+        .map(section => renderTaskSection(section.id, section.title, section.items, section.emptyText || '', key, scopePrefix, sectionState))
         .join('');
     }
 
@@ -1025,7 +1064,7 @@
 
     document.addEventListener('click', (e) => {
       document.getElementById('context-menu').classList.remove('show');
-      if (!e.target.closest('.task-swipe-item')) closeSwipeActions();
+      if (!e.target.closest('.task-swipe-item, .memo-swipe-item')) closeSwipeActions();
     });
 
     document.getElementById('context-add-memo').onclick = () => {
@@ -1101,11 +1140,11 @@
       const container = document.getElementById('summary-tasks');
       if (list.length === 0) openSwipeKey = null;
       const sections = groupTodosForSections(list);
-      container.innerHTML = renderTaskSectionsMarkup(sections, key, 'calendar', true);
+      container.innerHTML = renderTaskSectionsMarkup(sections, key, 'calendar', true, calendarSectionState);
       container.querySelectorAll('[data-section-toggle]').forEach(btn => {
         btn.onclick = () => {
           const id = btn.dataset.sectionToggle;
-          listSectionState[id] = !listSectionState[id];
+          calendarSectionState[id] = !calendarSectionState[id];
           updateSummaryTasks(key);
         };
       });
@@ -1418,11 +1457,10 @@
         bindMemoSwipe(wrapper, card, swipeKey);
         const deleteBtn = wrapper.querySelector('[data-action="delete-memo"]');
         if (deleteBtn) {
-          deleteBtn.onclick = (e) => {
-            e.stopPropagation();
+          bindSwipeActionButton(deleteBtn, () => {
             closeSwipeActions();
             deleteMemoByIndex(idx);
-          };
+          });
         }
         card.onclick = () => {
           if (card.dataset.suppressClick === '1' || wrapper.classList.contains('swiped-left')) return;
